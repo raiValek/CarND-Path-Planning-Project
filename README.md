@@ -1,16 +1,60 @@
 # CarND-Path-Planning-Project
 Self-Driving Car Engineer Nanodegree Program
-   
-### Simulator.
-You can download the Term3 Simulator which contains the Path Planning Project from the [releases tab (https://github.com/udacity/self-driving-car-sim/releases).
 
 ### Goals
 In this project your goal is to safely navigate around a virtual highway with other traffic that is driving +-10 MPH of the 50 MPH speed limit. You will be provided the car's localization and sensor fusion data, there is also a sparse map list of waypoints around the highway. The car should try to go as close as possible to the 50 MPH speed limit, which means passing slower traffic when possible, note that other cars will try to change lanes too. The car should avoid hitting other cars at all cost as well as driving inside of the marked road lanes at all times, unless going from one lane to another. The car should be able to make one complete loop around the 6946m highway. Since the car is trying to go 50 MPH, it should take a little over 5 minutes to complete 1 loop. Also the car should not experience total acceleration over 10 m/s^2 and jerk that is greater than 50 m/s^3.
 
-#### The map of the highway is in data/highway_map.txt
-Each waypoint in the list contains  [x,y,s,dx,dy] values. x and y are the waypoint's map coordinate position, the s value is the distance along the road to get to that waypoint in meters, the dx and dy values define the unit normal vector pointing outward of the highway loop.
+### Following the lane
+As a first step the car has to be able to follow one lane. The simulator provides the car's position in cartesian coordinates as well as in frenet coordinates. Frenet coordinates describe the position of the car with two values, *s* is the distance along the streets central path and *d* is the distance perpendicular to the central path. Hence, if the car shall stay in one lane the *d* value is constant and the position of the car is described with just one variable parameter *s*. The central path of the road is defined with waypoints in cartesian coordinates in the file *data/highway_map.csv*. The methods *getFrenet* and *getXY* transform coordinates from one of these two systems to the other. However, driving from one waypoint to the next in a straight line doesn't lead to a continuous path. Every time the car reaches one waypoint and changes its orientation towards the next waypoint, it will experience an infinite acceleration. Therefore the waypoints have to be interpolated. One way to do so is using spline interpolation which creates a polynomial out of some anchor points. The polynomial minimizes the first and second derivative and goes through the anchor points. Using the current *s* position and the position in 30, 60 and 90 m as anchor points creates a path smooth enough to not exceed the acceleration limit and accurate enough to stay in the lane.
 
-The highway's waypoints loop around so the frenet s value, distance along the road, goes from 0 to 6945.554.
+ The implementation for the spline interpolation used in this project can be downloaded at http://kluge.in-chemnitz.de/opensource/spline/spline.h .
+
+### Planning the path
+The other cars in the simulator are designed to be slightly slower than 50 mph. Therefore a strategy for overtaking maneuvers is needed. The class *DecisionMaker* provides the logic for each evaluation cycle summarized in the method *Decide*. *DecisionMaker* is implemented as finite-state machine, hence it will decide accordingly to the current state. The return value of *Decide* is a state defined in *State.h*. Since one evalution cycle takes only 0.02 s, most of the time the returned state will be the current state and the car will continue with its defined behavior. The following six states are used in this project:
+
+![States](stateDiagram.png)
+
+#### *ST_KEEPLANE*
+The car will keep the current lane and will proceed with a velocity of 49.5 mph.
+
+#### *ST_ADJUSTSPEED*
+The car has encountered a slower vehicle within its lane and it is not safe to overtake. The car will stay in its lane and match the slower vehicles speed until it is safe to overtake.
+
+#### *ST_CHANGELANELEFT* and *ST_CHANGELANERIGHT*
+The car will change to the next left or right lane in order to overtake a slower vehicle.
+
+#### *ST_CHANGETWOLANESLEFT* and *ST_CHANGETWOLANESRIGHT*
+The car will change to the lane after the next lane - to the left or the right. The reason for these states is one particular situation in which the car is in the most left or right lane and encounters two slower vehicles with the same or very similar velocity, one in its own lane and one in the center lane. Given the previous states it will never be safe to overtake because the next lane is blocked. Therefore the car will count the time in which it stays in the state ST_ADJUSTSPEED. After an adjustable patience time limit the car will consider a lane change over two lanes.
+
+#### Safety distances
+All decisions are based on distances between the car and other vehicles in the simulation. *DecisionMaker* differs between the following three safety distances:
+
+  * __safeApproachDistance__: The car will check this distance in front of itself while the state *ST_KEEPLANE*. When another vehicles appears witihin this distance the state machine has to decide to change the lane or to reduce the speed.
+
+![ST_KEEPLANE](safeApproachDistance.png)
+
+  * __safeGapHigh__: The car will check this distance in front of itself on the next left or right lane while considering a lane change.
+  * __safeGapLow__: The car will check this distance behind itself on the next left or right lane while considering a lane change.
+
+![ST_CHANGELANE](changeLane.png)
+
+For lane changes over two lanes the car will check *safeGapLow* in the front and the back of the center lane. The lane after the next lane will be checked like in a single lane change.
+
+![ST_CHANGETWOLANES](changeTwoLanes.png)
+
+The following parameters were used to initialize the DecisionMaker:
+
+| Parameter            | Value         | Unit  |
+| -------------------- |:-------------:|:-----:|
+| safeApproachDistance | 30            | m     |
+| safeGapHigh          | 35            | m     |
+| safeGapLow           | 5             | m     |
+| patience             | 10            | s     |
+
+---
+
+### Simulator.
+The Term3 Simulator used in this project can be downloaded from the [releases tab (https://github.com/udacity/self-driving-car-sim/releases).
 
 ## Basic Build Instructions
 
@@ -18,53 +62,6 @@ The highway's waypoints loop around so the frenet s value, distance along the ro
 2. Make a build directory: `mkdir build && cd build`
 3. Compile: `cmake .. && make`
 4. Run it: `./path_planning`.
-
-Here is the data provided from the Simulator to the C++ Program
-
-#### Main car's localization Data (No Noise)
-
-["x"] The car's x position in map coordinates
-
-["y"] The car's y position in map coordinates
-
-["s"] The car's s position in frenet coordinates
-
-["d"] The car's d position in frenet coordinates
-
-["yaw"] The car's yaw angle in the map
-
-["speed"] The car's speed in MPH
-
-#### Previous path data given to the Planner
-
-//Note: Return the previous list but with processed points removed, can be a nice tool to show how far along
-the path has processed since last time. 
-
-["previous_path_x"] The previous list of x points previously given to the simulator
-
-["previous_path_y"] The previous list of y points previously given to the simulator
-
-#### Previous path's end s and d values 
-
-["end_path_s"] The previous list's last point's frenet s value
-
-["end_path_d"] The previous list's last point's frenet d value
-
-#### Sensor Fusion Data, a list of all other car's attributes on the same side of the road. (No Noise)
-
-["sensor_fusion"] A 2d vector of cars and then that car's [car's unique ID, car's x position in map coordinates, car's y position in map coordinates, car's x velocity in m/s, car's y velocity in m/s, car's s position in frenet coordinates, car's d position in frenet coordinates. 
-
-## Details
-
-1. The car uses a perfect controller and will visit every (x,y) point it recieves in the list every .02 seconds. The units for the (x,y) points are in meters and the spacing of the points determines the speed of the car. The vector going from a point to the next point in the list dictates the angle of the car. Acceleration both in the tangential and normal directions is measured along with the jerk, the rate of change of total Acceleration. The (x,y) point paths that the planner recieves should not have a total acceleration that goes over 10 m/s^2, also the jerk should not go over 50 m/s^3. (NOTE: As this is BETA, these requirements might change. Also currently jerk is over a .02 second interval, it would probably be better to average total acceleration over 1 second and measure jerk from that.
-
-2. There will be some latency between the simulator running and the path planner returning a path, with optimized code usually its not very long maybe just 1-3 time steps. During this delay the simulator will continue using points that it was last given, because of this its a good idea to store the last points you have used so you can have a smooth transition. previous_path_x, and previous_path_y can be helpful for this transition since they show the last points given to the simulator controller with the processed points already removed. You would either return a path that extends this previous path or make sure to create a new path that has a smooth transition with this last path.
-
-## Tips
-
-A really helpful resource for doing this project and creating smooth trajectories was using http://kluge.in-chemnitz.de/opensource/spline/, the spline function is in a single hearder file is really easy to use.
-
----
 
 ## Dependencies
 
@@ -86,55 +83,3 @@ A really helpful resource for doing this project and creating smooth trajectorie
     cd uWebSockets
     git checkout e94b6e1
     ```
-
-## Editor Settings
-
-We've purposefully kept editor configuration files out of this repo in order to
-keep it as simple and environment agnostic as possible. However, we recommend
-using the following settings:
-
-* indent using spaces
-* set tab width to 2 spaces (keeps the matrices in source code aligned)
-
-## Code Style
-
-Please (do your best to) stick to [Google's C++ style guide](https://google.github.io/styleguide/cppguide.html).
-
-## Project Instructions and Rubric
-
-Note: regardless of the changes you make, your project must be buildable using
-cmake and make!
-
-
-## Call for IDE Profiles Pull Requests
-
-Help your fellow students!
-
-We decided to create Makefiles with cmake to keep this project as platform
-agnostic as possible. Similarly, we omitted IDE profiles in order to ensure
-that students don't feel pressured to use one IDE or another.
-
-However! I'd love to help people get up and running with their IDEs of choice.
-If you've created a profile for an IDE that you think other students would
-appreciate, we'd love to have you add the requisite profile files and
-instructions to ide_profiles/. For example if you wanted to add a VS Code
-profile, you'd add:
-
-* /ide_profiles/vscode/.vscode
-* /ide_profiles/vscode/README.md
-
-The README should explain what the profile does, how to take advantage of it,
-and how to install it.
-
-Frankly, I've never been involved in a project with multiple IDE profiles
-before. I believe the best way to handle this would be to keep them out of the
-repo root to avoid clutter. My expectation is that most profiles will include
-instructions to copy files to a new location to get picked up by the IDE, but
-that's just a guess.
-
-One last note here: regardless of the IDE used, every submitted project must
-still be compilable with cmake and make./
-
-## How to write a README
-A well written README file can enhance your project and portfolio.  Develop your abilities to create professional README files by completing [this free course](https://www.udacity.com/course/writing-readmes--ud777).
-
